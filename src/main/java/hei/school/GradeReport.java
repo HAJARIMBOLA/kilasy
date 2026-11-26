@@ -6,6 +6,7 @@ import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +21,10 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class GradeReport {
+
+    private static final BigDecimal MAX_GRADE = new BigDecimal("20");
+    private static final BigDecimal DAILY_PENALTY = new BigDecimal("0.10");
+    private static final BigDecimal MAX_PENALTY = new BigDecimal("0.50");
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -63,7 +68,7 @@ public class GradeReport {
                 } else {
                     BigDecimal raw = (BigDecimal) row.get("raw_points");
                     BigDecimal max = (BigDecimal) row.get("max_points");
-                    BigDecimal grade = raw.multiply(new BigDecimal("20")).divide(max, 1, RoundingMode.HALF_UP);
+                    BigDecimal grade = calculateGrade(raw, max, deadline, submittedAt);
                     line.put("status", "CORRIGÉ");
                     line.put("grade", grade);
                     line.put("feedback", row.get("feedback"));
@@ -82,5 +87,33 @@ public class GradeReport {
         report.put("exercises", lines);
         report.put("average", graded == 0 ? null : total.divide(new BigDecimal(graded), 2, RoundingMode.HALF_UP));
         return report;
+    }
+
+    /**
+     * Computes the grade out of 20, including the late penalty:
+     * 10% per started day late, capped at 50%.
+     */
+    static BigDecimal calculateGrade(BigDecimal rawPoints, BigDecimal maxPoints,
+                                     LocalDate deadline, LocalDateTime submittedAt) {
+        BigDecimal grade = rawPoints.multiply(MAX_GRADE)
+                .divide(maxPoints, 6, RoundingMode.HALF_UP);
+
+        long daysLate = daysLate(deadline, submittedAt);
+        if (daysLate > 0) {
+            BigDecimal penaltyRate = BigDecimal.valueOf(daysLate)
+                    .multiply(DAILY_PENALTY)
+                    .min(MAX_PENALTY);
+            grade = grade.multiply(BigDecimal.ONE.subtract(penaltyRate));
+        }
+
+        if (grade.signum() < 0) {
+            grade = BigDecimal.ZERO;
+        }
+        return grade.setScale(1, RoundingMode.HALF_UP);
+    }
+
+    private static long daysLate(LocalDate deadline, LocalDateTime submittedAt) {
+        long days = ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate());
+        return Math.max(days, 0);
     }
 }

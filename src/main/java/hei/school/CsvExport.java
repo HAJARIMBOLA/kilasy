@@ -1,6 +1,9 @@
 package hei.school;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -30,13 +33,7 @@ public class CsvExport {
         StringBuilder csv = new StringBuilder();
         csv.append("reference;etudiant;email;promotion;exercice;echeance;soumis_le;en_retard;note_sur_20\n");
         for (Map<String, Object> row : rows) {
-            String note = "";
-            if (row.get("raw_points") != null) {
-                double n = ((BigDecimal) row.get("raw_points")).doubleValue()
-                        / ((BigDecimal) row.get("max_points")).doubleValue() * 20;
-                n = Math.floor(n * 10) / 10;
-                note = String.valueOf(n).replace('.', ',');
-            }
+            String note = formatGrade(row);
             csv.append(row.get("reference")).append(';')
                     .append(row.get("full_name")).append(';')
                     .append(row.get("email")).append(';')
@@ -52,5 +49,20 @@ public class CsvExport {
                 .header("Content-Type", "text/csv; charset=UTF-8")
                 .header("Content-Disposition", "attachment; filename=\"notes-kilasy.csv\"")
                 .body(csv.toString());
+    }
+
+    private static String formatGrade(Map<String, Object> row) {
+        if (row.get("raw_points") == null) {
+            return "";
+        }
+
+        LocalDate deadline = ((java.sql.Date) row.get("deadline")).toLocalDate();
+        LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
+        BigDecimal grade = GradeReport.calculateGrade(
+                (BigDecimal) row.get("raw_points"),
+                (BigDecimal) row.get("max_points"),
+                deadline,
+                submittedAt);
+        return grade.toPlainString().replace('.', ',');
     }
 }
